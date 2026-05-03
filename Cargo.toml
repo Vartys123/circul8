@@ -1,7 +1,11 @@
 [package]
 name = "circul8"
-version = "1.0.0-alpha.2"
+version = "1.0.0-beta.1"
 edition = "2024"
+
+[lib]
+name = "circul8"
+crate-type = ["cdylib"]
 
 [profile.release]
 lto = true
@@ -19,3 +23,6 @@ opt-level = 1
 debug = true
 strip = false
 incremental = true
+
+[dependencies]
+pyo3 = {version="0.28.3", features=["extension-module"]}

@@ -1,3 +1,7 @@
+use pyo3::prelude::*;
+use pyo3::types::PyBytes;
+use std::sync::Arc;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Instruction {
     Right(usize),
@@ -10,6 +14,7 @@ pub enum Instruction {
     Pop,
 }
 
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct Program {
     pub instructions: Vec<Instruction>,
@@ -57,7 +62,7 @@ impl Program {
                     instrs.push(Instruction::Pop);
                     i += 1;
                 }
-                _ => {}
+                _ => i += 1,
             }
         }
         let mut stack = Vec::new();
@@ -77,34 +82,60 @@ impl Program {
     }
 }
 
+#[pymethods]
+impl Program {
+    #[new]
+    #[pyo3(signature = (code, fold=true))]
+    pub fn py_new(code: &str, fold: bool) -> PyResult<Self> {
+        Ok(Self::new(code, fold))
+    }
+    pub fn get_instructions_asm(&self) -> Vec<String> {
+        self.instructions
+            .iter()
+            .map(|i| format!("{:?}", i))
+            .collect()
+    }
+    pub fn __str__(&self) -> String {
+        delex(&self.instructions)
+    }
+}
+
+#[pyclass]
 #[derive(Debug)]
-pub struct Env<'a> {
+pub struct Env {
+    #[pyo3(get, set)]
     pub cells: Vec<u8>,
+    #[pyo3(get, set)]
     pub cell_ptr: usize,
-    pub program: &'a Program,
+    pub program: Arc<Program>,
+    #[pyo3(get, set)]
     pub instr_ptr: usize,
 }
 
-impl<'a> Env<'a> {
-    pub fn new(program: &'a Program, input: Vec<u8>) -> Self {
+#[pymethods]
+impl Env {
+    #[new]
+    pub fn py_new(py: Python<'_>, program: Py<Program>, input: Vec<u8>) -> Self {
+        let p_ref = program.bind(py).borrow();
+
         let mut cells = input;
         if cells.is_empty() {
             cells.push(0);
         }
+
         Self {
             cells,
             cell_ptr: 0,
-            program,
+            program: Arc::new(p_ref.clone()),
             instr_ptr: 0,
         }
     }
 
     pub fn step(&mut self) -> bool {
-        let instr = match self.program.instructions.get(self.instr_ptr) {
-            Some(i) => i,
-            None => return false,
+        let Some(&instr) = self.program.instructions.get(self.instr_ptr) else {
+            return false;
         };
-        match *instr {
+        match instr {
             Instruction::Right(n) => {
                 self.cell_ptr = (self.cell_ptr + n) % self.cells.len();
             }
@@ -143,20 +174,65 @@ impl<'a> Env<'a> {
         self.instr_ptr += 1;
         true
     }
+    #[getter]
+    pub fn get_cells<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.cells)
+    }
+    #[getter]
+    pub fn get_cell_ptr(&self) -> usize {
+        self.cell_ptr
+    }
+}
+
+impl Env {
+    pub fn new(program: Arc<Program>, input: Vec<u8>) -> Self {
+        let mut cells = input;
+        if cells.is_empty() {
+            cells.push(0);
+        }
+        Self {
+            cells,
+            cell_ptr: 0,
+            program,
+            instr_ptr: 0,
+        }
+    }
+}
+
+#[pymodule]
+fn circul8(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<Program>()?;
+    m.add_class::<Env>()?;
+    Ok(())
 }
 
 pub fn delex(instructions: &[Instruction]) -> String {
-    instructions
+    let len: usize = instructions
         .iter()
         .map(|i| match i {
-            Instruction::Right(n) => ">".repeat(*n),
-            Instruction::Left(n) => "<".repeat(*n),
-            Instruction::Increment(n) => "+".repeat(*n as usize),
-            Instruction::Decrement(n) => "-".repeat(*n as usize),
-            Instruction::LoopStart(..) => "[".to_string(),
-            Instruction::LoopEnd(..) => "]".to_string(),
-            Instruction::Push => "*".to_string(),
-            Instruction::Pop => "/".to_string(),
+            Instruction::Right(n) | Instruction::Left(n) => *n,
+            Instruction::Increment(n) | Instruction::Decrement(n) => *n as usize,
+            _ => 1,
         })
-        .collect()
+        .sum();
+    let mut s = String::with_capacity(len);
+    for i in instructions {
+        match i {
+            Instruction::Right(n) => push_chars(&mut s, '>', *n),
+            Instruction::Left(n) => push_chars(&mut s, '<', *n),
+            Instruction::Increment(n) => push_chars(&mut s, '+', *n as usize),
+            Instruction::Decrement(n) => push_chars(&mut s, '-', *n as usize),
+            Instruction::LoopStart(..) => s.push('['),
+            Instruction::LoopEnd(..) => s.push(']'),
+            Instruction::Push => s.push('*'),
+            Instruction::Pop => s.push('/'),
+        }
+    }
+    s
+}
+
+fn push_chars(s: &mut String, c: char, n: usize) {
+    for _ in 0..n {
+        s.push(c);
+    }
 }
