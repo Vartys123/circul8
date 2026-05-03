@@ -1,0 +1,21 @@
+[package]
+name = "circul8"
+version = "1.0.0-alpha.1"
+edition = "2024"
+
+[profile.release]
+lto = true
+codegen-units = 1
+#panic = "abort"
+opt-level = 3
+incremental = true
+strip = "symbols"
+debug = false
+
+[profile.dev]
+lto = "thin"
+codegen-units = 1
+opt-level = 1
+debug = true
+strip = false
+incremental = true
