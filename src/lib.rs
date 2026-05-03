@@ -41,8 +41,21 @@ impl Program {
                     match c {
                         b'>' => instrs.push(Instruction::Right(n)),
                         b'<' => instrs.push(Instruction::Left(n)),
-                        b'+' => instrs.push(Instruction::Increment(n as u8)),
-                        b'-' => instrs.push(Instruction::Decrement(n as u8)),
+                        b'+' | b'-' => {
+                            let mut r = n;
+                            while r > 255 {
+                                instrs.push(if c == b'+' {
+                                    Instruction::Increment(255)
+                                } else {
+                                    Instruction::Decrement(255)
+                                });
+                            }
+                            instrs.push(if c == b'+' {
+                                Instruction::Increment(r as u8)
+                            } else {
+                                Instruction::Decrement(r as u8)
+                            });
+                        }
                         _ => unreachable!(),
                     }
                 }
@@ -130,7 +143,6 @@ impl Env {
             instr_ptr: 0,
         }
     }
-
     pub fn step(&mut self) -> bool {
         let Some(&instr) = self.program.instructions.get(self.instr_ptr) else {
             return false;
@@ -174,13 +186,16 @@ impl Env {
         self.instr_ptr += 1;
         true
     }
-    #[getter]
-    pub fn get_cells<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &self.cells)
+    pub fn run(&mut self, max_steps: usize) -> usize {
+        let mut count = 0;
+        while count < max_steps && self.step() {
+            count += 1;
+        }
+        count
     }
     #[getter]
-    pub fn get_cell_ptr(&self) -> usize {
-        self.cell_ptr
+    pub fn get_cells_as_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.cells)
     }
 }
 
