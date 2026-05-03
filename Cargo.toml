@@ -25,4 +25,4 @@ strip = false
 incremental = true
 
 [dependencies]
-pyo3 = {version="0.28.3", features=["extension-module"]}
+pyo3 = {version="0.28.3", features=["extension-module", "abi3-py38"]}
